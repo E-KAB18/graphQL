@@ -1,14 +1,15 @@
 /* eslint-disable semi */
-require('./mongoconnect');
+require("./mongoconnect");
 
-const { buildSchema } = require('graphql');
-const { graphqlHTTP } = require('express-graphql');
-const jwt = require('jsonwebtoken');
+const { buildSchema } = require("graphql");
+const { graphqlHTTP } = require("express-graphql");
+const jwt = require("jsonwebtoken");
 
-const jwtSecret = 'husshh';
-const express = require('express');
-const User = require('./models/User');
-const Post = require('./models/Post');
+const jwtSecret = "husshh";
+const express = require("express");
+const User = require("./models/User");
+const Post = require("./models/Post");
+const Comment = require("./models/Comment");
 /*
 1 - Fork the repo
 2 - clone your repo after forking
@@ -49,98 +50,150 @@ const schema = buildSchema(`
     content: String!
     user: User!
   }
+  type Comment{
+    content: String!
+    user: User!
+    post:Post!
+  }
   type Query{
     hello: String
     getMyPosts(token: String): [Post!]!
     getAllPosts: [Post!]!
+    getPostcomments(token: String, postId:String):[Comment!]!
+    getAllComments:[Comment!]!
   }
   type Mutation{
     createUser(userData: UserRegistrationInput): User
     loginUser(username: String, password: String): LoginPayload
     postCreate(token:String, content:String): String
+    postEdit(token:String, content:String, postId:String): String
+    postDelete(token:String, postId:String): String
+    commentCreate(token:String, content:String, postId:String): String
+    
   }
 `);
 
-
 const userMutations = {
-  createUser: async ({
-    userData: {
-      username, password, firstName, lastName, age,
-    },
-  }) => {
-    const user = new User({
-      username,
-      password,
-      firstName,
-      lastName,
-      age,
-    });
-    await user.save();
-    return {
-      firstName,
-      lastName,
-      age,
-    };
-  },
-  loginUser: async ({ username, password }) => {
-    const user = await User.findOne({ username });
-    if (!user) return { error: 'Login failed' };
-    if (user.password !== password) return { error: 'Login failed' };
-    const token = jwt.sign({ userId: user.id }, jwtSecret);
-    return { token };
-  },
+	createUser: async ({
+		userData: { username, password, firstName, lastName, age },
+	}) => {
+		const user = new User({
+			username,
+			password,
+			firstName,
+			lastName,
+			age,
+		});
+		await user.save();
+		return {
+			firstName,
+			lastName,
+			age,
+		};
+	},
+	loginUser: async ({ username, password }) => {
+		const user = await User.findOne({ username });
+		if (!user) return { error: "Login failed" };
+		if (user.password !== password) return { error: "Login failed" };
+		const token = jwt.sign({ userId: user.id }, jwtSecret);
+		return { token };
+	},
 };
 
 const auth = async (token) => {
-  try {
-    const payload = jwt.verify(token, jwtSecret);
-    const user = User.findById(payload.userId);
-    return user;
-  } catch (error) {
-    return null;
-  }
+	try {
+		const payload = jwt.verify(token, jwtSecret);
+		const user = User.findById(payload.userId);
+		return user;
+	} catch (error) {
+		return null;
+	}
 };
-
 
 const postsMutation = {
-  postCreate: async ({ content, token }) => {
-    const user = await auth(token);
-    if (!user) return 'Authentication error';
-    const userId = user.id;
-    const post = new Post({ userId, content });
-    await post.save();
-    return 'Success';
-  },
-};
+	postCreate: async ({ content, token }) => {
+		const user = await auth(token);
+		if (!user) return "Authentication error";
+		const userId = user.id;
+		const post = new Post({ userId, content });
+		await post.save();
+		return "Success";
+	},
 
+	postEdit: async ({ content, token, postId }) => {
+		const user = await auth(token);
+		if (!user) return "Authentication error";
+		await findOneAndUpdate({ _id: postId }, { content });
+		return "Success";
+	},
+
+	postDelete: async ({ token, postId }) => {
+		const user = await auth(token);
+		if (!user) return "Authentication error";
+		try {
+			await Post.deleteOne({ _id: postId });
+		} catch (err) {
+			return "Post Deletetion Failed";
+		}
+		return "Post Deleted Successfully";
+	},
+};
 
 const postsQuery = {
-  getMyPosts: async ({ token }) => {
-    const user = await auth(token);
-    if (!user) return 'Authentication error';
-    const userId = user.id;
-    const posts = await Post.find({ userId });
-    return posts.map(p => ({ ...p, user }));
-  },
+	getMyPosts: async ({ token }) => {
+		const user = await auth(token);
+		if (!user) return "Authentication error";
+		const userId = user.id;
+		const posts = await Post.find({ userId });
+		return posts.map((p) => ({ ...p, user }));
+	},
 
-  getAllPosts: async () => {
-    const posts = await Post.find({}).populate('userId')
-    return posts.map(p => ({ ...p.toJSON(), user: p.userId }))
-  },
+	getAllPosts: async () => {
+		const posts = await Post.find({}).populate("userId");
+		return posts.map((p) => ({ ...p.toJSON(), user: p.userId }));
+	},
 };
 
+const commentsMutation = {
+	commentCreate: async ({ content, token, postId }) => {
+		const user = await auth(token);
+		if (!user) return "Authentication error";
+		const userId = user.id;
+		const comment = new Post({ userId, content, postId });
+		await comment.save();
+		return "Success";
+	},
+};
+
+const commentsQuery = {
+	getPostcomments: async ({ token, postId }) => {
+		const user = await auth(token);
+		if (!user) return "Authentication error";
+		const comments = await Comment.find({ postId });
+		return comments;
+	},
+
+	getAllComments: async () => {
+		const comments = await Comment.find({}).populate("postId");
+		return comments.map((c) => ({ ...c.toJSON(), post: c.postId }));
+	},
+
+	// return all comments of a specific post
+};
 
 const rootValue = {
-  ...userMutations,
-  ...postsMutation,
-  ...postsQuery,
-  hello: () => 'Hello world',
+	...userMutations,
+	...postsMutation,
+	...commentsMutation,
+	...postsQuery,
+	...commentsQuery,
+	hello: () => "Hello world",
 };
 
 const app = express();
 
-app.use('/graph', graphqlHTTP({ schema, rootValue, graphiql: true }));
+app.use("/graph", graphqlHTTP({ schema, rootValue, graphiql: true }));
 
 app.listen(5000, () => {
-  console.log('Server is runing');
+	console.log("Server is runing");
 });
